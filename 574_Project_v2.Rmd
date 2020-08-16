@@ -1,0 +1,213 @@
+---
+title: "574 Project"
+author: "Malvika Mohan"
+date: "3/3/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(MASS)
+library(e1071)
+library(corrplot)
+library(stats)
+library(caret)
+library(pROC)
+```
+
+
+
+```{r}
+weather_data <- read.csv(file.choose())
+weather_data <- data.frame(weather_data)
+weather_data <- na.omit(weather_data)
+rownames(weather_data) <- 1:nrow(weather_data)
+weather_data
+```
+
+
+
+```{r }
+#Checking correlation
+temp <- weather_data$RainToday
+weather_data2 <- weather_data %>% select_if(is.numeric) %>% dplyr::select(-RISK_MM) 
+
+bivrel <- cor(weather_data2,y=NULL,use = "everything",method = "pearson")
+corrplot(bivrel, method = "square")
+
+```
+
+```{r }
+#Determining the rainfall,average temperature,Humidity trends across three cities =1) Melbourne  
+
+
+weather_dataMel <-weather_data %>% filter(Location=='Melbourne') 
+
+
+dev.new()  # Generates a new plot window.
+
+#Plotting rainfall in inches for melbourne
+plot(ts (weather_dataMel$Rainfall, start=c(2007), end=c(2017), frequency=1),xlab="",ylab="Rainfall in inches",col=" Blue",main = "Yearly precipitation trends of Melbourne inches")
+
+
+
+
+weather_dataMel$Avgtemp <- weather_dataMel %>% group_by(Date) %>% summarise(avgt=mean(MinTemp,MaxTemp,na.rm=TRUE))
+
+#Plotting average temperature in celsius in Melbourne
+plot(ts (weather_dataMel$Avgtemp$avgt, start=c(2007), end=c(2017), frequency=1),ylab="Average temperature in celsius",col="Red",main="Yearly temperature trends of Melbourne ")
+
+
+#Plotting Humidity percentage at 3pm  in Melbourne
+plot(ts (weather_dataMel$Humidity3pm, start=c(2007), end=c(2017), frequency=1),ylab="Percentage of humidity in Melbourne",col="green",main = "Yearly Humidity of Melbourne")
+
+#Plotting Sunshine in Melbourne
+plot(ts (weather_dataMel$Sunshine, start=c(2007), end=c(2017), frequency=1),ylab="Number of hours of sunshine per day",col="orange",main = "Number of days of sunshine in Melbourne")
+```
+
+```{r }
+#Determining the rainfall,average temperature trends across three cities =2) Sydney  
+
+weather_dataSyd <- weather_data %>% filter(Location=='Sydney')
+
+
+plot(ts (weather_dataSyd$Rainfall, start=c(2007), end=c(2017), frequency=1),xlab="",ylab= "Rainfall in inches",col="Blue",main = "Yearly precipitation trends of Sydeny ")
+
+weather_dataSyd<-na.omit(weather_dataSyd);
+weather_dataSyd$Avgtemp <- weather_dataSyd %>% group_by(Date) %>%  summarise(avgt2=mean(MinTemp,MaxTemp,na.rm = TRUE))
+
+
+
+#Plotting average temperature in celsius in Sydney
+plot(ts (weather_dataSyd$Avgtemp$avgt2,  start=c(2007), end=c(2017), frequency=1),xlab="",ylab="Average temperature in celsius",col="Red",main="Yearly temperature trends of Sydney")
+
+#Plotting Humidity percentage at 3pm in Sydney
+plot(ts (weather_dataSyd$Humidity3pm, start=c(2007), end=c(2017), frequency=1),ylab="Percentage of humidity at 3pm in  Sydney",col=" green",main = "Yearly Humidity percentage of Sydney")
+
+
+#Plotting Sunshine in Sydney
+plot(ts (weather_dataSyd$Sunshine, start=c(2007), end=c(2017), frequency=1),ylab="Number of hours of sunshine per day",col="orange",main = "Yearly Number of hours of sunshine in Sydney")
+
+```
+
+```{r }
+#Determining the rainfall,average temperature trends across three cities = 3)Cranberra 
+weather_dataCanberra <- weather_data %>% filter(Location=='Canberra')
+
+
+
+
+plot(ts (weather_dataCanberra$Rainfall, start=c(2007), end=c(2017), frequency=1),xlab="",ylab="Yearly precipitation trends of Cranberra inches",col="Blue")
+
+
+weather_dataCanberra$Avgtemp <- weather_dataCanberra %>% group_by(Date) %>%  summarise(avgt3=mean(MinTemp,MaxTemp,na.rm = TRUE))
+
+
+
+
+#Plotting average temperature in celsius in Cranberra
+plot(ts (weather_dataCanberra$Avgtemp$avgt3,  start=c(2007), end=c(2017), frequency=1),xlab="",ylab="Average temperature of Cranberra in degrees",col="Red")
+
+
+#Plotting percentage of Humidity at 3pm in Canberra
+plot(ts (weather_dataCanberra$Humidity3pm, start=c(2007), end=c(2017), frequency=1),ylab="Percentage of humidity at 3pm in Cranberra",col=" green",main = "Yearly Humidity percentage of Cranberra")
+
+
+#Plotting Sunshine in Canberra
+plot(ts (weather_dataCanberra$Sunshine, start=c(2007), end=c(2017), frequency=1),ylab="Number of hours of sunshine",col="orange",main = "Number of days of sunshine in Canberra")
+
+```
+
+```{r }
+#Checking for significant variables for a linear regression model.
+lower_regression_limit <- lm(Rainfall~1,data =head(weather_data2,1000))
+upper_regression_limit <- lm(Rainfall~.,data=head(weather_data2,1000))
+step_model <- stepAIC(lower_regression_limit , scope = list(lower = lower_regression_limit , upper = upper_regression_limit), direction ="both",trace = FALSE)
+summary(step_model)
+```
+
+Retaining the variables as determined by least-squares inference.
+
+
+```{r }
+#Setting up the data for classification.
+weather_data3 <- weather_data2 %>% dplyr::select(Humidity9am,Sunshine,WindSpeed9am,Temp3pm,MaxTemp,WindGustSpeed) %>% cbind(Rain_today = temp)
+
+set.seed(32)
+split_ind <- sample(nrow(weather_data3),size = 0.75 * nrow(weather_data3),replace = FALSE)
+train <- weather_data3[split_ind,]
+test <- weather_data3[-split_ind,]
+train
+attach(train)
+```
+
+```{r}
+#Logistic regression.
+model_logistic <- glm(Rain_today ~.,family = binomial(link = 'logit'),data = train)
+summary(model_logistic)
+predict_logistic <- predict(model_logistic,test,type = 'response')
+
+
+#Confusion Matrix at a threshold of 0.5
+op_logistic <- data.frame(test$Rain_today, predict_logistic)
+op_logistic$classification <- ifelse(op_logistic$predict_logistic > 0.5,1,0)
+op_logistic$test.Rain_today <- if_else(op_logistic$test.Rain_today == 'Yes',1,0)
+confusionMatrix(factor(op_logistic$classification),factor(op_logistic$test.Rain_today))
+
+#ROC 
+par(pty = 's')
+roc(train$Rain_today,model_logistic$fitted.values,plot = TRUE,legacy.axes= TRUE,col = '#ff5252',lwd = 4,print.auc = TRUE)
+
+```
+
+```{r}
+
+model_svm <- svm(Rain_today ~. ,train)
+predict_svm <- predict(model_svm, test,type = 'response')
+summary(model_svm)
+model_svm$fitted
+
+#ConfusionMatrix
+op_svm <- data.frame(test$Rain_today, predict_svm)
+confusionMatrix(factor(op_svm$predict_svm),factor(op_svm$test.Rain_today))
+
+
+#svm_tune <- tune(svm, y~x, data = data, ranges=list(epsilon=seq(0,1,0.1), cost=seq(1,10,1)))
+#ROC
+par(pty = 's')
+roc(train$Rain_today,if_else(model_svm$fitted == 'Yes',1,0),plot = TRUE,legacy.axes= TRUE,col = '#ff5252',lwd = 4,print.auc = TRUE)
+```
+
+```{r}
+par(pty = 's')
+
+#Purple curve: logistic regression model 
+roc(train$Rain_today,model_logistic$fitted.values,plot = TRUE,legacy.axes= TRUE,col = '#9c88ff',lwd = 4,print.auc = TRUE,print.auc.y = 0.3)
+
+
+#Green curve: SVM
+roc(train$Rain_today,if_else(model_svm$fitted == 'Yes',1,0),plot = TRUE,legacy.axes= TRUE,col = '#4cd137',lwd = 4,print.auc = TRUE,add = TRUE,print.auc.y = 0.2)
+```
+
+Counterfactuals
+
+```{r}
+set.seed(123)
+df_temp = na.omit(weather_data[weather_data$Location=='Cobar',c(1,2,4,3,16,17)])
+
+df_temp$YearMonth <- substr(df_temp$Date, 1, 7)
+df_temp <- aggregate(df_temp[,3:6], list(df_temp$YearMonth), mean)
+
+sample = sample(2, nrow(df_temp), replace=TRUE, prob = c(0.70, 0.30))
+train = df_temp[sample==1,3:5]
+test = df_temp[sample==2,3:5]
+trainLabels = df_temp[sample==1,2]
+testLabels = df_temp[sample==2,2]
+
+model = lm(trainLabels~., data = train)
+pred = predict(model, test)
+plot(c(trainLabels,testLabels), type="l",col="red", ylim = c(10,45))
+lines(c(trainLabels,pred+5), col="blue")
+lines(trainLabels)
+```
+
